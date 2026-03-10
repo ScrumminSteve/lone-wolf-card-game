@@ -1091,7 +1091,7 @@ letter-spacing:.1em;
     <div class="title-logo">LONE WOLF</div>
     <div class="title-sub">Path of the Kai</div>
     <div style="font-family:'Cinzel',serif;font-size:.5rem;letter-spacing:.25em;color:var(--text2);margin-top:-.2rem;margin-bottom:.2rem;display:flex;align-items:center;gap:.5rem;justify-content:center;">
-      <span>v0.2.6</span>
+      <span>v0.2.7</span>
       <span style="color:var(--red2);border:1px solid var(--red2);padding:.05rem .3rem;border-radius:2px;font-size:.42rem;letter-spacing:.2em;">ALPHA</span>
     </div>
     <div class="title-divider"></div>
@@ -1375,7 +1375,9 @@ async function cloudSave(progressData) {
       console.warn(`PATCH failed HTTP ${patch.status}:`, patchErr);
     }
     // INSERT
-    const insertBody = JSON.stringify({ player_id: pid, data: progressData, updated_at: new Date().toISOString() });
+    // Generate a stable numeric id from player_id string
+    const pidHash = pid.split('').reduce((a,c) => Math.abs((a * 31 + c.charCodeAt(0)) | 0), 0);
+    const insertBody = JSON.stringify({ id: pidHash, player_id: pid, data: progressData, updated_at: new Date().toISOString() });
     const post = await fetch(`${SB_URL}/rest/v1/saves`, {
       method: 'POST',
       headers: { ...headers, 'Prefer': 'return=minimal' },
