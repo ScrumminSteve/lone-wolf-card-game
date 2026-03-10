@@ -1091,7 +1091,7 @@ letter-spacing:.1em;
     <div class="title-logo">LONE WOLF</div>
     <div class="title-sub">Path of the Kai</div>
     <div style="font-family:'Cinzel',serif;font-size:.5rem;letter-spacing:.25em;color:var(--text2);margin-top:-.2rem;margin-bottom:.2rem;display:flex;align-items:center;gap:.5rem;justify-content:center;">
-      <span>v0.2.3</span>
+      <span>v0.2.4</span>
       <span style="color:var(--red2);border:1px solid var(--red2);padding:.05rem .3rem;border-radius:2px;font-size:.42rem;letter-spacing:.2em;">ALPHA</span>
     </div>
     <div class="title-divider"></div>
@@ -1326,16 +1326,30 @@ async function cloudLoad() {
   const pid = getOrCreatePlayerId();
   try {
     const res = await fetch(`${SB_URL}/rest/v1/saves?player_id=eq.${encodeURIComponent(pid)}&select=data`, {
-      headers: { 'apikey': SB_KEY, 'Authorization': `Bearer ${SB_KEY}` }
+      headers: { 'apikey': SB_KEY, 'Authorization': `Bearer ${SB_KEY}`, 'Content-Type': 'application/json' }
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      // Fall back to localStorage backup
+      try {
+        const backup = localStorage.getItem('lw_progress_backup');
+        return backup ? JSON.parse(backup) : null;
+      } catch(e) { return null; }
+    }
     const rows = await res.json();
     return rows.length ? rows[0].data : null;
-  } catch(e) { return null; }
+  } catch(e) {
+    // Fall back to localStorage backup
+    try {
+      const backup = localStorage.getItem('lw_progress_backup');
+      return backup ? JSON.parse(backup) : null;
+    } catch(e2) { return null; }
+  }
 }
 
 async function cloudSave(progressData) {
   const pid = getOrCreatePlayerId();
+  // Always save to localStorage as primary local backup
+  try { localStorage.setItem('lw_progress_backup', JSON.stringify(progressData)); } catch(e) {}
   setSaveStatus('saving');
   try {
     const res = await fetch(`${SB_URL}/rest/v1/saves`, {
@@ -1343,22 +1357,37 @@ async function cloudSave(progressData) {
       headers: {
         'apikey': SB_KEY, 'Authorization': `Bearer ${SB_KEY}`,
         'Content-Type': 'application/json',
-        'Prefer': 'resolution=merge-duplicates'
+        'Prefer': 'resolution=merge-duplicates,return=minimal'
       },
       body: JSON.stringify({ player_id: pid, data: progressData, updated_at: new Date().toISOString() })
     });
     if (res.ok) { setSaveStatus('saved'); return true; }
-    else { setSaveStatus('error'); return false; }
-  } catch(e) { setSaveStatus('error'); return false; }
+    const errText = await res.text().catch(()=>'');
+    const status = res.status;
+    console.warn(`Supabase save failed HTTP ${status}:`, errText);
+    setSaveStatus('error', `HTTP ${status}`);
+    return false;
+  } catch(e) {
+    console.warn('Supabase network error:', e.message);
+    setSaveStatus('error', 'network');
+    return false;
+  }
 }
 
-function setSaveStatus(state) {
+function setSaveStatus(state, detail) {
   const el = document.getElementById('cloud-save-status');
   if (!el) return;
   el.style.display = 'block';
   el.className = 'save-status ' + state;
-  el.textContent = state === 'saving' ? '☁ Saving…' : state === 'saved' ? '✓ Saved to cloud' : '✗ Save failed';
-  if (state !== 'saving') setTimeout(() => { if(el) el.style.display='none'; }, 3000);
+  if (state === 'saving') {
+    el.textContent = '☁ Saving…';
+  } else if (state === 'saved') {
+    el.textContent = '✓ Saved to cloud';
+  } else {
+    const hint = detail === 'network' ? '(offline?)' : detail ? `(${detail})` : '';
+    el.textContent = `✗ Cloud unavailable ${hint} -- saved locally`;
+  }
+  if (state !== 'saving') setTimeout(() => { if(el) el.style.display='none'; }, 5000);
 }
 
 function copyPlayerId() {
