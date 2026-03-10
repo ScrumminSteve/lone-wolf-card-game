@@ -1091,7 +1091,7 @@ letter-spacing:.1em;
     <div class="title-logo">LONE WOLF</div>
     <div class="title-sub">Path of the Kai</div>
     <div style="font-family:'Cinzel',serif;font-size:.5rem;letter-spacing:.25em;color:var(--text2);margin-top:-.2rem;margin-bottom:.2rem;display:flex;align-items:center;gap:.5rem;justify-content:center;">
-      <span>v0.2.5</span>
+      <span>v0.2.6</span>
       <span style="color:var(--red2);border:1px solid var(--red2);padding:.05rem .3rem;border-radius:2px;font-size:.42rem;letter-spacing:.2em;">ALPHA</span>
     </div>
     <div class="title-divider"></div>
@@ -1359,12 +1359,21 @@ async function cloudSave(progressData) {
   try {
     // Try PATCH (update) first
     const patch = await fetch(`${SB_URL}/rest/v1/saves?player_id=eq.${encodeURIComponent(pid)}`, {
-      method: 'PATCH', headers, body
+      method: 'PATCH',
+      headers: { ...headers, 'Prefer': 'return=representation,count=exact' },
+      body
     });
-    if (patch.ok) { setSaveStatus('saved'); return true; }
-    // Log patch failure
-    const patchErr = await patch.text().catch(()=>'');
-    console.warn(`PATCH failed HTTP ${patch.status}:`, patchErr);
+    if (patch.ok) {
+      // Check that at least one row was actually updated
+      const contentRange = patch.headers.get('Content-Range') || '';
+      const count = parseInt(contentRange.split('/')[1] || '0', 10);
+      if (count > 0) { setSaveStatus('saved'); return true; }
+      // 0 rows matched -- fall through to INSERT
+      console.log('PATCH matched 0 rows, inserting new record');
+    } else {
+      const patchErr = await patch.text().catch(()=>'');
+      console.warn(`PATCH failed HTTP ${patch.status}:`, patchErr);
+    }
     // INSERT
     const insertBody = JSON.stringify({ player_id: pid, data: progressData, updated_at: new Date().toISOString() });
     const post = await fetch(`${SB_URL}/rest/v1/saves`, {
