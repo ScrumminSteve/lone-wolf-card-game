@@ -1352,7 +1352,7 @@ async function cloudSave(progressData) {
   try { localStorage.setItem('lw_progress_backup', JSON.stringify(progressData)); } catch(e) {}
   setSaveStatus('saving');
   try {
-    const res = await fetch(`${SB_URL}/rest/v1/saves`, {
+    const res = await fetch(`${SB_URL}/rest/v1/saves?on_conflict=player_id`, {
       method: 'POST',
       headers: {
         'apikey': SB_KEY, 'Authorization': `Bearer ${SB_KEY}`,
@@ -1439,7 +1439,23 @@ async function importPlayerId() {
     renderBookGrid();
     setTimeout(() => msg.textContent = '', 4000);
   } catch(e) {
-    msg.textContent = 'Connection failed -- try on live site'; msg.className = 'pid-import-msg err';
+    // Network failed - try localStorage backup
+    try {
+      const localBackup = localStorage.getItem('lw_progress_' + raw);
+      if (localBackup) {
+        const data = JSON.parse(localBackup);
+        localStorage.setItem('lw_player_id', raw);
+        PROGRESS.booksCompleted = data.booksCompleted || [];
+        PROGRESS.discUnlocks = 5 + PROGRESS.booksCompleted.length;
+        document.querySelectorAll('.player-id-val').forEach(el => el.textContent = raw);
+        input.value = '';
+        msg.textContent = '✓ Loaded from local backup -- ' + PROGRESS.booksCompleted.length + ' book(s) completed.';
+        msg.className = 'pid-import-msg ok';
+        renderBookGrid();
+        setTimeout(() => msg.textContent = '', 4000); return;
+      }
+    } catch(e2) {}
+    msg.textContent = 'Connection failed -- no local backup found'; msg.className = 'pid-import-msg err';
     setTimeout(() => msg.textContent = '', 3000);
   }
 }
