@@ -29,7 +29,8 @@ function gainRandomKaiCard(g, msg, andThen) {
 function applyTheme(t) {
   document.documentElement.setAttribute('data-theme', t);
   const icon = t === 'light' ? '☀️' : '🌙';
-  document.querySelectorAll('.theme-toggle, #titleThemeToggle, #splashThemeBtn').forEach(b => b.textContent = icon);
+  const btn = document.getElementById('global-theme-btn');
+  if(btn) btn.textContent = icon;
   try { localStorage.setItem('lw_theme', t); } catch(e) {}
 }
 function toggleTheme() {
@@ -82,15 +83,10 @@ function updateDiscChosen() {
 }
 
 // ── Init state ───────────────────────────────────────────────
-function initState() {
+function initState(chosenRelicId) {
   const discCards = selectedDiscs.map(id => { const d=KAI_DISCIPLINES.find(x=>x.id===id); return d?d.flavorCard:'lw_strike'; });
-  const startRelics = [];
-  selectedDiscs.forEach(id => {
-    const d = KAI_DISCIPLINES.find(x=>x.id===id);
-    if(d && d.relic && !startRelics.includes(d.relic)) startRelics.push(d.relic);
-    const kaiRelic = ALL_RELICS.find(r => r.rarity==='kai' && r.disc===id);
-    if(kaiRelic && !startRelics.includes(kaiRelic.id)) startRelics.push(kaiRelic.id);
-  });
+  // Start with just the one chosen relic (from the pick screen)
+  const startRelics = chosenRelicId ? [chosenRelicId] : [];
   G = {
     hp:80, hpMax:80, gold:50, floor:0, kills:0,
     disciplines: selectedDiscs, discipline: selectedDiscs[0],
@@ -114,13 +110,53 @@ function startGame() {
     loadProgress().then(() => { renderBookGrid(); showScreen('book-select-screen'); });
     return;
   }
-  initState();
-  updateMapUI();
-  showScreen('map-screen');
-  setTimeout(() => { const avail=document.querySelector('.map-node.available'); if(avail) avail.scrollIntoView({behavior:'smooth',block:'center'}); }, 100);
+  // Show relic pick before starting
+  showRelicPick(selectedDiscs, (chosenRelic) => {
+    initState(chosenRelic);
+    updateMapUI();
+    showScreen('map-screen');
+    setTimeout(() => { const avail=document.querySelector('.map-node.available'); if(avail) avail.scrollIntoView({behavior:'smooth',block:'center'}); }, 100);
+  });
 }
 
 // ── Event bindings ────────────────────────────────────────────
+// ── Relic pick flow ──────────────────────────────────────────
+// Called after disciplines chosen, before game starts.
+// Shows one kai relic per chosen discipline — player picks one.
+let _relicPickCallback = null;
+
+function showRelicPick(discs, onPick) {
+  _relicPickCallback = onPick;
+  const grid = document.getElementById('relicPickGrid');
+  grid.innerHTML = '';
+
+  // One kai relic per chosen discipline
+  const options = [];
+  discs.forEach(id => {
+    const d = KAI_DISCIPLINES.find(x => x.id === id);
+    const r = ALL_RELICS.find(r => r.rarity === 'kai' && r.disc === id);
+    if(r && !options.find(o => o.id === r.id)) options.push({ ...r, discName: d ? d.name : id, discIcon: d ? d.icon : '' });
+  });
+
+  options.forEach(r => {
+    const card = document.createElement('div');
+    card.className = 'relic-pick-card';
+    card.innerHTML = `
+      <div class="relic-pick-art">${r.art}</div>
+      <div class="relic-pick-name">${r.name}</div>
+      <div class="relic-pick-disc">${r.discIcon} ${r.discName}</div>
+      <div class="relic-pick-desc">${r.desc}</div>
+    `;
+    card.onclick = () => {
+      document.getElementById('relicPickModal').classList.remove('open');
+      if(_relicPickCallback) _relicPickCallback(r.id);
+    };
+    grid.appendChild(card);
+  });
+
+  document.getElementById('relicPickModal').classList.add('open');
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   // Theme first
   let savedTheme = 'dark';
@@ -131,6 +167,9 @@ document.addEventListener('DOMContentLoaded', () => {
   loadProgress();
   initTitle();
 
+  // Global theme toggle — works on every screen
+  document.getElementById('global-theme-btn').addEventListener('click', toggleTheme);
+
   // ── Splash screen buttons ─────────────────────────────────
   document.getElementById('splash-story-btn').addEventListener('click', () => {
     loadProgress().then(() => { renderBookGrid(); showScreen('book-select-screen'); });
@@ -139,18 +178,15 @@ document.addEventListener('DOMContentLoaded', () => {
     storyMode = false;
     showScreen('title-screen');
   });
-  document.getElementById('splashThemeBtn').addEventListener('click', toggleTheme);
 
   // ── Title screen ──────────────────────────────────────────
   document.getElementById('title-begin-btn').addEventListener('click', startGame);
-  document.getElementById('titleThemeToggle').addEventListener('click', toggleTheme);
   document.getElementById('mode-btn-original').addEventListener('click', () => selectMode('original'));
   document.getElementById('mode-btn-story').addEventListener('click', () => selectMode('story'));
 
   // Map screen
   document.getElementById('map-deck-btn').onclick = openDeckViewer;
   document.getElementById('fogToggle').onclick = toggleFog;
-  document.getElementById('mapThemeToggle').onclick = toggleTheme;
 
   // Combat screen
   document.getElementById('end-turn-btn').onclick = endTurn;
