@@ -93,8 +93,8 @@ function startStoryGame() {
   if(storySelectedDiscs.length < Math.min(maxDiscs, 5)) { alert('Please choose at least 5 Kai Disciplines to begin.'); return; }
   selectedDiscs = [...storySelectedDiscs];
   // Show relic pick before starting
-  showRelicPick(selectedDiscs, (chosenRelic) => {
-    initState(chosenRelic);
+  showRelicPick(selectedDiscs, (chosenRelics) => {
+    initState(chosenRelics);
     G.storyMode = true; G.bookIdx = activeBookIdx; G.storySection = 0;
     updateStoryMapUI();
     showScreen('map-screen');
