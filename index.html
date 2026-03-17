@@ -20,7 +20,6 @@
 ═══════════════════════════════════ -->
 <div id="splash-screen" class="screen active">
   <div class="splash-glow"></div>
-  <button class="splash-theme-btn" id="splashThemeBtn">🌙</button>
   <div class="splash-wolf">🐺</div>
   <div class="splash-title">LONE WOLF</div>
   <div class="splash-subtitle">Path of the Kai</div>
@@ -48,7 +47,7 @@
       <span class="version-badge-alpha">ALPHA</span>
     </div>
     <div class="title-divider"></div>
-    <button class="theme-toggle" id="titleThemeToggle" title="Toggle light/dark mode">🌙</button>
+    <button class="theme-toggle" id="titleThemeToggle" style="display:none" title="Toggle light/dark mode">🌙</button>
     <div class="title-quote">"Last of the Kai Lords, you alone survived the Darklord's massacre. The fate of Sommerlund rests with you alone."</div>
   </div>
   <div class="title-right-col">
@@ -119,7 +118,6 @@
       <div class="kai-disc-banner" id="map-disc">Kai</div>
       <button class="deck-btn" id="map-deck-btn">📜 Deck (<span id="deck-count">12</span>)</button>
       <button class="map-view-toggle" id="fogToggle" style="display:none">👁 Farsight</button>
-      <button class="theme-toggle" id="mapThemeToggle" title="Toggle light/dark mode">🌙</button>
     </div>
     <div class="relics-bar" id="map-relics-bar" style="width:100%;padding-left:.2rem"></div>
   </div>
@@ -348,6 +346,24 @@
     <div class="card-zoom-panels" id="czPanels"></div>
     <div class="card-zoom-hint" id="czHint"></div>
     <button class="close-modal-btn" id="card-zoom-close">CLOSE</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════
+     FIXED THEME TOGGLE (always visible)
+═══════════════════════════════════ -->
+<button id="global-theme-btn" class="global-theme-btn" title="Toggle light/dark mode">🌙</button>
+
+<!-- ═══════════════════════════════════
+     RELIC PICK MODAL
+═══════════════════════════════════ -->
+<div class="modal-overlay" id="relicPickModal">
+  <div class="modal-box" style="max-width:480px;text-align:center;">
+    <div class="modal-title">✦ CHOOSE YOUR STARTING ITEM ✦</div>
+    <div style="font-family:'Crimson Pro',serif;font-style:italic;font-size:.8rem;color:var(--text2);margin-bottom:1rem;">
+      Each of your Kai disciplines offers one artefact. Choose one to carry into battle.
+    </div>
+    <div id="relicPickGrid" style="display:flex;flex-wrap:wrap;gap:.7rem;justify-content:center;"></div>
   </div>
 </div>
 
