@@ -122,30 +122,30 @@ function startGame() {
 
 // ── Event bindings ────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-  // Theme
+  // Theme first
   let savedTheme = 'dark';
   try { savedTheme = localStorage.getItem('lw_theme') || 'dark'; } catch(e) {}
   applyTheme(savedTheme);
 
-  // Boot — show splash screen first
+  // Load progress silently in background — never navigates
   loadProgress();
   initTitle();
 
-  // Splash screen
-  document.getElementById('splash-story-btn').onclick = () => {
+  // ── Splash screen buttons ─────────────────────────────────
+  document.getElementById('splash-story-btn').addEventListener('click', () => {
     loadProgress().then(() => { renderBookGrid(); showScreen('book-select-screen'); });
-  };
-  document.getElementById('splash-freeplay-btn').onclick = () => {
+  });
+  document.getElementById('splash-freeplay-btn').addEventListener('click', () => {
     storyMode = false;
     showScreen('title-screen');
-  };
-  document.getElementById('splashThemeBtn').onclick = toggleTheme;
+  });
+  document.getElementById('splashThemeBtn').addEventListener('click', toggleTheme);
 
-  // Title screen
-  document.getElementById('title-begin-btn').onclick = startGame;
-  document.getElementById('titleThemeToggle').onclick = toggleTheme;
-  document.getElementById('mode-btn-original').onclick = () => selectMode('original');
-  document.getElementById('mode-btn-story').onclick = () => selectMode('story');
+  // ── Title screen ──────────────────────────────────────────
+  document.getElementById('title-begin-btn').addEventListener('click', startGame);
+  document.getElementById('titleThemeToggle').addEventListener('click', toggleTheme);
+  document.getElementById('mode-btn-original').addEventListener('click', () => selectMode('original'));
+  document.getElementById('mode-btn-story').addEventListener('click', () => selectMode('story'));
 
   // Map screen
   document.getElementById('map-deck-btn').onclick = openDeckViewer;
@@ -209,6 +209,9 @@ document.addEventListener('DOMContentLoaded', () => {
   };
   document.getElementById('card-zoom-close').onclick = closeCardZoom;
   document.getElementById('cardZoomModal').onclick = e => { if(e.target === e.currentTarget) closeCardZoom(); };
+
+  // Always end on splash — overrides any active class set in HTML
+  showScreen('splash-screen');
 });
 
 // Global error handler
