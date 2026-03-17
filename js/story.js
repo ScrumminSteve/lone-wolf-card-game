@@ -7,7 +7,7 @@ let activeBookIdx = 0;
 let storySelectedDiscs = [];
 
 // ── Mode toggle ──────────────────────────────────────────────
-function showModeSelect() { showScreen('title-screen'); }
+function showModeSelect() { showScreen('splash-screen'); }
 
 function selectMode(mode) {
   document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
@@ -18,6 +18,7 @@ function selectMode(mode) {
   } else {
     storyMode = false;
     showScreen('title-screen');
+    storyMode = false;
   }
 }
 
