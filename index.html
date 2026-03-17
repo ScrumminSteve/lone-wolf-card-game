@@ -16,9 +16,28 @@
 <body>
 
 <!-- ═══════════════════════════════════
-     TITLE SCREEN
+     SPLASH SCREEN
 ═══════════════════════════════════ -->
-<div id="title-screen" class="screen active">
+<div id="splash-screen" class="screen active">
+  <div class="splash-glow"></div>
+  <button class="splash-theme-btn" id="splashThemeBtn">🌙</button>
+  <div class="splash-wolf">🐺</div>
+  <div class="splash-title">LONE WOLF</div>
+  <div class="splash-subtitle">Path of the Kai</div>
+  <div class="splash-buttons">
+    <button class="splash-btn-story" id="splash-story-btn">📖 &nbsp; STORY MODE</button>
+    <button class="splash-btn-freeplay" id="splash-freeplay-btn">⚔ &nbsp; FREE PLAY</button>
+  </div>
+  <div class="splash-version">
+    <span>v0.2.9</span>
+    <span class="splash-version-alpha">ALPHA</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════
+     TITLE SCREEN (Free Play setup)
+═══════════════════════════════════ -->
+<div id="title-screen" class="screen">
   <div id="titleCards"></div>
   <div class="title-left-col">
     <div class="title-wolf">🐺</div>
