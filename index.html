@@ -358,12 +358,17 @@
      RELIC PICK MODAL
 ═══════════════════════════════════ -->
 <div class="modal-overlay" id="relicPickModal">
-  <div class="modal-box" style="max-width:480px;text-align:center;">
-    <div class="modal-title">✦ CHOOSE YOUR STARTING ITEM ✦</div>
-    <div style="font-family:'Crimson Pro',serif;font-style:italic;font-size:.8rem;color:var(--text2);margin-bottom:1rem;">
-      Each of your Kai disciplines offers one artefact. Choose one to carry into battle.
+  <div class="modal-box" style="max-width:560px;">
+    <div class="modal-title">✦ CHOOSE YOUR STARTING ITEMS ✦</div>
+    <div style="font-family:'Crimson Pro',serif;font-style:italic;font-size:.78rem;color:var(--text2);margin-bottom:1rem;text-align:center;">
+      For each Kai discipline, choose one artefact to carry. You will begin with all five.
     </div>
-    <div id="relicPickGrid" style="display:flex;flex-wrap:wrap;gap:.7rem;justify-content:center;"></div>
+    <div id="relicPickGrid"></div>
+    <div style="text-align:center;margin-top:1.1rem;">
+      <button class="btn-primary" id="relicPickConfirmBtn" style="font-size:.75rem;padding:.55rem 2rem;opacity:.35;cursor:default;" disabled>
+        SELECT ALL 5 TO CONTINUE
+      </button>
+    </div>
   </div>
 </div>
 
