@@ -92,10 +92,13 @@ function startStoryGame() {
   const maxDiscs = Math.min(9, 5 + PROGRESS.booksCompleted.length);
   if(storySelectedDiscs.length < Math.min(maxDiscs, 5)) { alert('Please choose at least 5 Kai Disciplines to begin.'); return; }
   selectedDiscs = [...storySelectedDiscs];
-  initState();
-  G.storyMode = true; G.bookIdx = activeBookIdx; G.storySection = 0;
-  updateStoryMapUI();
-  showScreen('map-screen');
+  // Show relic pick before starting
+  showRelicPick(selectedDiscs, (chosenRelic) => {
+    initState(chosenRelic);
+    G.storyMode = true; G.bookIdx = activeBookIdx; G.storySection = 0;
+    updateStoryMapUI();
+    showScreen('map-screen');
+  });
 }
 
 // ── Story map UI ─────────────────────────────────────────────
