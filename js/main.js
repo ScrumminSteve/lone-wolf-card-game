@@ -83,14 +83,54 @@ function updateDiscChosen() {
 }
 
 // ── Init state ───────────────────────────────────────────────
-function initState(chosenRelics) {
-  const discCards = selectedDiscs.map(id => { const d=KAI_DISCIPLINES.find(x=>x.id===id); return d?d.flavorCard:'lw_strike'; });
-  // chosenRelics is an array of one relic per discipline
-  const startRelics = Array.isArray(chosenRelics) ? [...chosenRelics] : (chosenRelics ? [chosenRelics] : []);
+// carryOver: { deck, relics, discRelicPool, disciplines, gold }  OR  null for fresh start
+function initState(carryOver) {
+  const fresh = !carryOver;
+  const discs = fresh ? selectedDiscs : carryOver.disciplines;
+  const discCards = discs.map(id => { const d=KAI_DISCIPLINES.find(x=>x.id===id); return d?d.flavorCard:'lw_strike'; });
+
+  let startRelics = [], discRelicPool = [];
+
+  if(fresh) {
+    // Randomly assign one of two relics per discipline; other goes to pool
+    discs.forEach(id => {
+      const d = KAI_DISCIPLINES.find(x => x.id === id); if(!d) return;
+      const kaiRelic    = ALL_RELICS.find(r => r.rarity === 'kai' && r.disc === id);
+      const flavorRelic = ALL_RELICS.find(r => r.id === d.relic);
+      const both = [kaiRelic, flavorRelic].filter(Boolean)
+        .filter((r, i, arr) => arr.findIndex(x => x.id === r.id) === i);
+      if(!both.length) return;
+      const startIdx = Math.floor(Math.random() * both.length);
+      startRelics.push(both[startIdx].id);
+      both.forEach((r, i) => { if(i !== startIdx) discRelicPool.push({ id: r.id, disc: id }); });
+    });
+  } else {
+    startRelics   = [...(carryOver.relics || [])];
+    discRelicPool = [...(carryOver.discRelicPool || [])];
+    // Add relic slots for any newly added discipline
+    const newDiscs = discs.filter(id => !(carryOver.prevDisciplines||discs).slice(0,-1).includes(id));
+    newDiscs.forEach(id => {
+      const d = KAI_DISCIPLINES.find(x => x.id === id); if(!d) return;
+      const kaiRelic    = ALL_RELICS.find(r => r.rarity === 'kai' && r.disc === id);
+      const flavorRelic = ALL_RELICS.find(r => r.id === d.relic);
+      const both = [kaiRelic, flavorRelic].filter(Boolean)
+        .filter((r, i, arr) => arr.findIndex(x => x.id === r.id) === i)
+        .filter(r => !startRelics.includes(r.id));
+      if(!both.length) return;
+      const startIdx = Math.floor(Math.random() * both.length);
+      startRelics.push(both[startIdx].id);
+      both.forEach((r, i) => { if(i !== startIdx) discRelicPool.push({ id: r.id, disc: id }); });
+    });
+  }
+
   G = {
-    hp:80, hpMax:80, gold:50, floor:0, kills:0,
-    disciplines: selectedDiscs, discipline: selectedDiscs[0],
-    deck: ['lw_strike','lw_strike','lw_strike','lw_defend','lw_defend','lw_defend', ...discCards],
+    hp:80, hpMax:80,
+    gold: fresh ? 50 : (carryOver.gold || 50),
+    floor:0, kills:0,
+    disciplines: discs, discipline: discs[0],
+    deck: fresh
+      ? ['lw_strike','lw_strike','lw_strike','lw_defend','lw_defend','lw_defend', ...discCards]
+      : [...(carryOver.deck || ['lw_strike','lw_strike','lw_strike','lw_defend','lw_defend','lw_defend', ...discCards])],
     powers:{}, hand:[], drawPile:[], discardPile:[], exhaustPile:[],
     energy:3, energyMax:3, block:0, statuses:{},
     enemies:[], targetIdx:0, focus:0,
@@ -98,6 +138,7 @@ function initState(chosenRelics) {
     pendingRemove:false, pendingRemoveThenKai:false,
     _rewardGold:30, _emsg:'',
     relics: startRelics,
+    discRelicPool,
     _skullApplied:false, _essenceUsed:false,
     _extraStartDraw:0, currentNodeType:'combat', _pendingItemReward:null,
     storyChoices:{}, storyMode:false, bookIdx:0, storySection:0,
@@ -110,103 +151,13 @@ function startGame() {
     loadProgress().then(() => { renderBookGrid(); showScreen('book-select-screen'); });
     return;
   }
-  // Show relic pick before starting
-  showRelicPick(selectedDiscs, (chosenRelics) => {
-    initState(chosenRelics);
-    updateMapUI();
-    showScreen('map-screen');
-    setTimeout(() => { const avail=document.querySelector('.map-node.available'); if(avail) avail.scrollIntoView({behavior:'smooth',block:'center'}); }, 100);
-  });
+  initState(null);
+  updateMapUI();
+  showScreen('map-screen');
+  setTimeout(() => { const avail=document.querySelector('.map-node.available'); if(avail) avail.scrollIntoView({behavior:'smooth',block:'center'}); }, 100);
 }
 
 // ── Event bindings ────────────────────────────────────────────
-// ── Relic pick flow ──────────────────────────────────────────
-// For each chosen discipline, player picks 1 of 2 relics.
-// Results in 5 relics total (one per discipline).
-let _relicPickCallback = null;
-
-function showRelicPick(discs, onPick) {
-  _relicPickCallback = onPick;
-  const grid = document.getElementById('relicPickGrid');
-  const confirmBtn = document.getElementById('relicPickConfirmBtn');
-  grid.innerHTML = '';
-
-  // Track selections: discId -> chosen relicId
-  const selections = {};
-
-  function updateConfirm() {
-    const allPicked = discs.every(id => selections[id]);
-    confirmBtn.disabled = !allPicked;
-    confirmBtn.style.opacity = allPicked ? '1' : '.35';
-    confirmBtn.style.cursor = allPicked ? 'pointer' : 'default';
-    const remaining = discs.length - Object.keys(selections).length;
-    confirmBtn.textContent = allPicked
-      ? 'BEGIN YOUR QUEST ▶'
-      : `SELECT ${remaining} MORE TO CONTINUE`;
-  }
-
-  discs.forEach(discId => {
-    const d = KAI_DISCIPLINES.find(x => x.id === discId);
-    if(!d) return;
-
-    // Option A: the discipline's kai-tier relic
-    const kaiRelic = ALL_RELICS.find(r => r.rarity === 'kai' && r.disc === discId);
-    // Option B: the discipline's common/uncommon relic
-    const flavorRelic = ALL_RELICS.find(r => r.id === d.relic);
-
-    const options = [kaiRelic, flavorRelic].filter(Boolean);
-    // Deduplicate (in case they happen to be the same)
-    const seen = new Set();
-    const uniqueOptions = options.filter(r => { if(seen.has(r.id)) return false; seen.add(r.id); return true; });
-
-    const row = document.createElement('div');
-    row.className = 'relic-pick-row';
-
-    // Discipline label
-    const label = document.createElement('div');
-    label.className = 'relic-pick-disc-label';
-    label.innerHTML = `${d.icon}<br>${d.name}`;
-    row.appendChild(label);
-
-    // Relic options
-    const optionsEl = document.createElement('div');
-    optionsEl.className = 'relic-pick-options';
-
-    uniqueOptions.forEach(r => {
-      const card = document.createElement('div');
-      card.className = 'relic-pick-card';
-      card.dataset.disc = discId;
-      card.dataset.relic = r.id;
-      card.innerHTML = `
-        <div class="relic-pick-art">${r.art}</div>
-        <div class="relic-pick-name">${r.name}</div>
-        <div class="relic-pick-rarity ${r.rarity}">${r.rarity}</div>
-        <div class="relic-pick-desc">${r.desc}</div>
-      `;
-      card.addEventListener('click', () => {
-        // Deselect others in same row
-        optionsEl.querySelectorAll('.relic-pick-card').forEach(c => c.classList.remove('selected'));
-        card.classList.add('selected');
-        selections[discId] = r.id;
-        updateConfirm();
-      });
-      optionsEl.appendChild(card);
-    });
-
-    row.appendChild(optionsEl);
-    grid.appendChild(row);
-  });
-
-  confirmBtn.onclick = () => {
-    if(discs.some(id => !selections[id])) return;
-    document.getElementById('relicPickModal').classList.remove('open');
-    const chosen = discs.map(id => selections[id]).filter(Boolean);
-    if(_relicPickCallback) _relicPickCallback(chosen);
-  };
-
-  updateConfirm();
-  document.getElementById('relicPickModal').classList.add('open');
-}
 
 document.addEventListener('DOMContentLoaded', () => {
   // Theme first
@@ -282,6 +233,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Book intro screen
   document.getElementById('bi-start-btn').onclick = startStoryGame;
+  document.getElementById('bi-continue-btn').onclick = continueStoryGame;
+  document.getElementById('bi-reset-btn').onclick = resetAndStartStoryGame;
   document.getElementById('bi-back-btn').onclick = () => { showScreen('book-select-screen'); renderBookGrid(); };
 
   // Modals
