@@ -6,6 +6,7 @@
 let PROGRESS = {
   booksCompleted: [],   // indices of completed books
   discUnlocks: 5,       // 5 + completed books (max 9)
+  carryState: null,     // {deck, relics, disciplines, gold} — persists between books
 };
 
 // ── Player identity ──────────────────────────────────────────
@@ -99,6 +100,7 @@ async function loadProgress() {
   if (data) {
     PROGRESS.booksCompleted = data.booksCompleted || [];
     PROGRESS.discUnlocks = 5 + PROGRESS.booksCompleted.length;
+    PROGRESS.carryState = data.carryState || null;
   }
 }
 
