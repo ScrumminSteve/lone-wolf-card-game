@@ -83,10 +83,10 @@ function updateDiscChosen() {
 }
 
 // ── Init state ───────────────────────────────────────────────
-function initState(chosenRelicId) {
+function initState(chosenRelics) {
   const discCards = selectedDiscs.map(id => { const d=KAI_DISCIPLINES.find(x=>x.id===id); return d?d.flavorCard:'lw_strike'; });
-  // Start with just the one chosen relic (from the pick screen)
-  const startRelics = chosenRelicId ? [chosenRelicId] : [];
+  // chosenRelics is an array of one relic per discipline
+  const startRelics = Array.isArray(chosenRelics) ? [...chosenRelics] : (chosenRelics ? [chosenRelics] : []);
   G = {
     hp:80, hpMax:80, gold:50, floor:0, kills:0,
     disciplines: selectedDiscs, discipline: selectedDiscs[0],
@@ -111,8 +111,8 @@ function startGame() {
     return;
   }
   // Show relic pick before starting
-  showRelicPick(selectedDiscs, (chosenRelic) => {
-    initState(chosenRelic);
+  showRelicPick(selectedDiscs, (chosenRelics) => {
+    initState(chosenRelics);
     updateMapUI();
     showScreen('map-screen');
     setTimeout(() => { const avail=document.querySelector('.map-node.available'); if(avail) avail.scrollIntoView({behavior:'smooth',block:'center'}); }, 100);
@@ -121,39 +121,90 @@ function startGame() {
 
 // ── Event bindings ────────────────────────────────────────────
 // ── Relic pick flow ──────────────────────────────────────────
-// Called after disciplines chosen, before game starts.
-// Shows one kai relic per chosen discipline — player picks one.
+// For each chosen discipline, player picks 1 of 2 relics.
+// Results in 5 relics total (one per discipline).
 let _relicPickCallback = null;
 
 function showRelicPick(discs, onPick) {
   _relicPickCallback = onPick;
   const grid = document.getElementById('relicPickGrid');
+  const confirmBtn = document.getElementById('relicPickConfirmBtn');
   grid.innerHTML = '';
 
-  // One kai relic per chosen discipline
-  const options = [];
-  discs.forEach(id => {
-    const d = KAI_DISCIPLINES.find(x => x.id === id);
-    const r = ALL_RELICS.find(r => r.rarity === 'kai' && r.disc === id);
-    if(r && !options.find(o => o.id === r.id)) options.push({ ...r, discName: d ? d.name : id, discIcon: d ? d.icon : '' });
+  // Track selections: discId -> chosen relicId
+  const selections = {};
+
+  function updateConfirm() {
+    const allPicked = discs.every(id => selections[id]);
+    confirmBtn.disabled = !allPicked;
+    confirmBtn.style.opacity = allPicked ? '1' : '.35';
+    confirmBtn.style.cursor = allPicked ? 'pointer' : 'default';
+    const remaining = discs.length - Object.keys(selections).length;
+    confirmBtn.textContent = allPicked
+      ? 'BEGIN YOUR QUEST ▶'
+      : `SELECT ${remaining} MORE TO CONTINUE`;
+  }
+
+  discs.forEach(discId => {
+    const d = KAI_DISCIPLINES.find(x => x.id === discId);
+    if(!d) return;
+
+    // Option A: the discipline's kai-tier relic
+    const kaiRelic = ALL_RELICS.find(r => r.rarity === 'kai' && r.disc === discId);
+    // Option B: the discipline's common/uncommon relic
+    const flavorRelic = ALL_RELICS.find(r => r.id === d.relic);
+
+    const options = [kaiRelic, flavorRelic].filter(Boolean);
+    // Deduplicate (in case they happen to be the same)
+    const seen = new Set();
+    const uniqueOptions = options.filter(r => { if(seen.has(r.id)) return false; seen.add(r.id); return true; });
+
+    const row = document.createElement('div');
+    row.className = 'relic-pick-row';
+
+    // Discipline label
+    const label = document.createElement('div');
+    label.className = 'relic-pick-disc-label';
+    label.innerHTML = `${d.icon}<br>${d.name}`;
+    row.appendChild(label);
+
+    // Relic options
+    const optionsEl = document.createElement('div');
+    optionsEl.className = 'relic-pick-options';
+
+    uniqueOptions.forEach(r => {
+      const card = document.createElement('div');
+      card.className = 'relic-pick-card';
+      card.dataset.disc = discId;
+      card.dataset.relic = r.id;
+      card.innerHTML = `
+        <div class="relic-pick-art">${r.art}</div>
+        <div class="relic-pick-name">${r.name}</div>
+        <div class="relic-pick-rarity ${r.rarity}">${r.rarity}</div>
+        <div class="relic-pick-desc">${r.desc}</div>
+      `;
+      card.addEventListener('click', () => {
+        // Deselect others in same row
+        optionsEl.querySelectorAll('.relic-pick-card').forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+        selections[discId] = r.id;
+        updateConfirm();
+      });
+      optionsEl.appendChild(card);
+    });
+
+    row.appendChild(optionsEl);
+    grid.appendChild(row);
   });
 
-  options.forEach(r => {
-    const card = document.createElement('div');
-    card.className = 'relic-pick-card';
-    card.innerHTML = `
-      <div class="relic-pick-art">${r.art}</div>
-      <div class="relic-pick-name">${r.name}</div>
-      <div class="relic-pick-disc">${r.discIcon} ${r.discName}</div>
-      <div class="relic-pick-desc">${r.desc}</div>
-    `;
-    card.onclick = () => {
-      document.getElementById('relicPickModal').classList.remove('open');
-      if(_relicPickCallback) _relicPickCallback(r.id);
-    };
-    grid.appendChild(card);
-  });
+  confirmBtn.onclick = () => {
+    if(discs.some(id => !selections[id])) return;
+    document.getElementById('relicPickModal').classList.remove('open');
+    const chosen = discs.map(id => selections[id]).filter(Boolean);
+    if(_relicPickCallback) _relicPickCallback(chosen);
+  };
 
+  updateConfirm();
   document.getElementById('relicPickModal').classList.add('open');
 }
 
