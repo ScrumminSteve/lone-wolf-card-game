@@ -14,11 +14,10 @@ function selectMode(mode) {
   document.getElementById('mode-btn-' + mode).classList.add('active');
   if(mode === 'story') {
     storyMode = true;
-    loadProgress().then(() => { renderBookGrid(); showScreen('book-select-screen'); });
+    // Navigate from splash button, not here
   } else {
     storyMode = false;
     showScreen('title-screen');
-    storyMode = false;
   }
 }
 
