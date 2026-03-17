@@ -11,7 +11,7 @@ function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 function shuffle(arr) { let a=[...arr]; for(let i=a.length-1;i>0;i--){const j=~~(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} return a; }
 function getCard(id) { return ALL_CARDS.find(c => c.id === id) || ALL_CARDS[0]; }
 function showScreen(id) { document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active')); document.getElementById(id).classList.add('active'); }
-function showTitle() { showScreen('title-screen'); }
+function showTitle() { showScreen('splash-screen'); }
 
 function gainRandomCard(g, msg, andThen) {
   const c = pick(CARD_POOL); g.deck.push(c.id);
@@ -29,7 +29,7 @@ function gainRandomKaiCard(g, msg, andThen) {
 function applyTheme(t) {
   document.documentElement.setAttribute('data-theme', t);
   const icon = t === 'light' ? '☀️' : '🌙';
-  document.querySelectorAll('.theme-toggle, #titleThemeToggle').forEach(b => b.textContent = icon);
+  document.querySelectorAll('.theme-toggle, #titleThemeToggle, #splashThemeBtn').forEach(b => b.textContent = icon);
   try { localStorage.setItem('lw_theme', t); } catch(e) {}
 }
 function toggleTheme() {
@@ -127,9 +127,19 @@ document.addEventListener('DOMContentLoaded', () => {
   try { savedTheme = localStorage.getItem('lw_theme') || 'dark'; } catch(e) {}
   applyTheme(savedTheme);
 
-  // Boot
-  loadProgress().then(() => { renderBookGrid(); showScreen('book-select-screen'); });
+  // Boot — show splash screen first
+  loadProgress();
   initTitle();
+
+  // Splash screen
+  document.getElementById('splash-story-btn').onclick = () => {
+    loadProgress().then(() => { renderBookGrid(); showScreen('book-select-screen'); });
+  };
+  document.getElementById('splash-freeplay-btn').onclick = () => {
+    storyMode = false;
+    showScreen('title-screen');
+  };
+  document.getElementById('splashThemeBtn').onclick = toggleTheme;
 
   // Title screen
   document.getElementById('title-begin-btn').onclick = startGame;
