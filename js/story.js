@@ -44,47 +44,166 @@ function renderBookGrid() {
 function openBookIntro(bookIdx) {
   activeBookIdx = bookIdx; storyMode = true;
   const book = BOOKS[bookIdx];
+  const isFirstBook = bookIdx === 0;
+  const hasCarry = !!PROGRESS.carryState && !isFirstBook;
   const maxDiscs = Math.min(9, 5 + PROGRESS.booksCompleted.length);
+
   document.getElementById('bi-eyebrow').textContent = 'Book ' + book.num + ' of ' + BOOKS.length;
   document.getElementById('bi-title').textContent = book.title;
   document.getElementById('bi-art').textContent = book.art;
   document.getElementById('bi-text').textContent = book.intro;
-  document.getElementById('bi-disc-label').textContent = `Choose ${maxDiscs} Kai Discipline${maxDiscs!==1?'s':''}`;
-  document.getElementById('bi-disc-hint').textContent = '★ Recommended disciplines are highlighted for this journey';
-  storySelectedDiscs = [];
-  renderStoryDiscGrid(book, maxDiscs);
+
+  const carryPanel = document.getElementById('bi-carryover-panel');
+  const freshPanel = document.getElementById('bi-fresh-panel');
+  const discLabel  = document.getElementById('bi-disc-label');
+  const discHint   = document.getElementById('bi-disc-hint');
+  const discGrid   = document.getElementById('storyDiscGrid');
+
+  if(hasCarry) {
+    // Show carry-over panel
+    carryPanel.style.display = 'flex';
+    freshPanel.style.display = 'none';
+    discLabel.style.display = 'block';
+
+    const carry = PROGRESS.carryState;
+    const prevDiscs = carry.disciplines || [];
+    const prevRelics = carry.relics || [];
+    const deckSize = (carry.deck || []).length;
+
+    // Can add 1 new discipline (up to maxDiscs total)
+    const canAddDisc = prevDiscs.length < maxDiscs;
+    discLabel.textContent = canAddDisc
+      ? `Add one new Kai Discipline (optional)`
+      : `Kai Disciplines — ${prevDiscs.length} mastered`;
+    discHint.textContent = canAddDisc
+      ? `Your existing ${prevDiscs.length} disciplines are locked. You may add one new one.`
+      : `You have mastered all available disciplines for this book.`;
+
+    // Carry summary
+    const relicNames = prevRelics.map(id => { const r=ALL_RELICS.find(x=>x.id===id); return r?r.art+' '+r.name:'?'; }).join(', ');
+    document.getElementById('bi-carry-summary').innerHTML =
+      `<strong>${deckSize} cards</strong> · <strong>${prevRelics.length} items</strong> · <strong>${carry.gold||0} gold</strong> carry into ${book.title}<br>` +
+      `<span style="font-size:.52rem;opacity:.8">${relicNames}</span>`;
+
+    // Render discipline grid — locked = previous, selectable = new ones
+    storySelectedDiscs = [...prevDiscs];
+    renderStoryDiscGrid(book, maxDiscs, prevDiscs, canAddDisc);
+
+  } else {
+    // First book or fresh start — normal discipline pick
+    carryPanel.style.display = 'none';
+    freshPanel.style.display = 'flex';
+    discLabel.style.display = 'block';
+    discLabel.textContent = `Choose ${maxDiscs} Kai Disciplines`;
+    discHint.textContent = '★ Recommended disciplines are highlighted for this journey';
+    storySelectedDiscs = [];
+    renderStoryDiscGrid(book, maxDiscs, [], false);
+  }
+
   showScreen('book-intro-screen');
 }
 
-function renderStoryDiscGrid(book, maxDiscs) {
+function continueStoryGame() {
+  // Carry over everything; possibly add 1 new discipline
+  const carry = PROGRESS.carryState;
+  const prevDiscs = carry.disciplines || [];
+  const newDisc = storySelectedDiscs.find(id => !prevDiscs.includes(id));
+  const finalDiscs = newDisc ? [...prevDiscs, newDisc] : [...prevDiscs];
+  selectedDiscs = finalDiscs;
+
+  // Build carry-over state with updated disciplines
+  const carryOver = {
+    ...carry,
+    disciplines: finalDiscs,
+    prevDisciplines: prevDiscs,
+  };
+
+  initState(carryOver);
+  G.storyMode = true; G.bookIdx = activeBookIdx; G.storySection = 0;
+  updateStoryMapUI();
+  showScreen('map-screen');
+}
+
+function resetAndStartStoryGame() {
+  // Wipe carry state and start fresh
+  PROGRESS.carryState = null;
+  storySelectedDiscs = [];
+  const bookIdx = activeBookIdx;
+  const book = BOOKS[bookIdx];
+  const maxDiscs = Math.min(9, 5 + PROGRESS.booksCompleted.length);
+  document.getElementById('bi-carryover-panel').style.display = 'none';
+  document.getElementById('bi-fresh-panel').style.display = 'flex';
+  document.getElementById('bi-disc-label').textContent = `Choose ${maxDiscs} Kai Disciplines`;
+  document.getElementById('bi-disc-hint').textContent = '★ Recommended disciplines are highlighted for this journey';
+  renderStoryDiscGrid(book, maxDiscs, [], false);
+}
+
+function renderStoryDiscGrid(book, maxDiscs, lockedDiscs, canAddOne) {
   const grid = document.getElementById('storyDiscGrid'); if(!grid) return;
   grid.innerHTML = '';
   KAI_DISCIPLINES.forEach(d => {
+    const isLocked = lockedDiscs.includes(d.id);
+    const isSelected = storySelectedDiscs.includes(d.id);
+    const isRec = book.recommendedDiscs && book.recommendedDiscs.includes(d.id);
     const cardDef = ALL_CARDS.find(c => c.id === d.flavorCard);
     const relicDef = ALL_RELICS.find(r => r.id === d.relic);
-    const isRec = book.recommendedDiscs.includes(d.id);
     const el = document.createElement('div');
-    el.className = 'kai-disc-card' + (storySelectedDiscs.includes(d.id)?' selected':'') + (isRec?' recommended':'');
+    el.className = 'kai-disc-card'
+      + (isSelected ? ' selected' : '')
+      + (isRec && !isLocked ? ' recommended' : '')
+      + (isLocked ? ' bi-disc-locked' : '');
     el.dataset.id = d.id;
     el.innerHTML = `<div class="disc-icon">${d.icon}</div><div class="disc-name">${d.name}</div><div class="disc-hint">${d.hint}</div><div class="disc-grants"><span>📜 ${cardDef?cardDef.name:d.flavorCard}</span><span>✦ ${relicDef?relicDef.art:''}</span><span class="disc-preview-btn" onclick="event.stopPropagation();showDiscPreview('${d.id}')">👁</span></div>`;
-    el.onclick = () => toggleStoryDisc(d.id, maxDiscs);
+    if(!isLocked) {
+      el.onclick = () => toggleStoryDisc(d.id, maxDiscs, lockedDiscs, canAddOne);
+    }
     grid.appendChild(el);
   });
-  updateStoryDiscChosen(maxDiscs);
+  updateStoryDiscChosen(maxDiscs, lockedDiscs);
 }
 
-function toggleStoryDisc(id, maxDiscs) {
-  if(storySelectedDiscs.includes(id)) storySelectedDiscs = storySelectedDiscs.filter(d => d !== id);
-  else { if(storySelectedDiscs.length >= maxDiscs) storySelectedDiscs.shift(); storySelectedDiscs.push(id); }
-  document.querySelectorAll('#storyDiscGrid .kai-disc-card').forEach(el => el.classList.toggle('selected', storySelectedDiscs.includes(el.dataset.id)));
-  updateStoryDiscChosen(maxDiscs);
+function toggleStoryDisc(id, maxDiscs, lockedDiscs, canAddOne) {
+  lockedDiscs = lockedDiscs || [];
+  if(lockedDiscs.includes(id)) return; // can't toggle locked disciplines
+
+  if(canAddOne) {
+    // In carry-over mode: can select at most one new discipline
+    const newSelected = storySelectedDiscs.filter(d => !lockedDiscs.includes(d));
+    if(newSelected.includes(id)) {
+      // Deselect
+      storySelectedDiscs = storySelectedDiscs.filter(d => d !== id);
+    } else {
+      // Replace any previously selected new disc
+      storySelectedDiscs = [...lockedDiscs, id];
+    }
+  } else {
+    // Normal fresh-start mode
+    if(storySelectedDiscs.includes(id)) storySelectedDiscs = storySelectedDiscs.filter(d => d !== id);
+    else { if(storySelectedDiscs.length >= maxDiscs) storySelectedDiscs.shift(); storySelectedDiscs.push(id); }
+  }
+
+  document.querySelectorAll('#storyDiscGrid .kai-disc-card').forEach(el => {
+    if(!el.classList.contains('bi-disc-locked')) {
+      el.classList.toggle('selected', storySelectedDiscs.includes(el.dataset.id));
+    }
+  });
+  updateStoryDiscChosen(maxDiscs, lockedDiscs);
 }
 
-function updateStoryDiscChosen(maxDiscs) {
+function updateStoryDiscChosen(maxDiscs, lockedDiscs) {
+  lockedDiscs = lockedDiscs || [];
   const el = document.getElementById('storyDiscChosen'); if(!el) return;
   const n = storySelectedDiscs.length;
   const names = storySelectedDiscs.map(id => { const d=KAI_DISCIPLINES.find(x=>x.id===id); return d?d.icon+' '+d.name:id; });
-  el.textContent = n===0?'None chosen' : n<maxDiscs?`${names.join(' · ')} (choose ${maxDiscs-n} more)` : names.join(' · ');
+  if(lockedDiscs.length > 0) {
+    // Carry-over mode
+    const newDisc = storySelectedDiscs.find(id => !lockedDiscs.includes(id));
+    el.textContent = newDisc
+      ? `+ ${KAI_DISCIPLINES.find(x=>x.id===newDisc)?.name} added`
+      : 'No new discipline (optional)';
+  } else {
+    el.textContent = n===0?'None chosen' : n<maxDiscs?`${names.join(' · ')} (choose ${maxDiscs-n} more)` : names.join(' · ');
+  }
 }
 
 // ── Start story game ─────────────────────────────────────────
@@ -92,13 +211,10 @@ function startStoryGame() {
   const maxDiscs = Math.min(9, 5 + PROGRESS.booksCompleted.length);
   if(storySelectedDiscs.length < Math.min(maxDiscs, 5)) { alert('Please choose at least 5 Kai Disciplines to begin.'); return; }
   selectedDiscs = [...storySelectedDiscs];
-  // Show relic pick before starting
-  showRelicPick(selectedDiscs, (chosenRelics) => {
-    initState(chosenRelics);
-    G.storyMode = true; G.bookIdx = activeBookIdx; G.storySection = 0;
-    updateStoryMapUI();
-    showScreen('map-screen');
-  });
+  initState(null); // fresh start — random relic assignment
+  G.storyMode = true; G.bookIdx = activeBookIdx; G.storySection = 0;
+  updateStoryMapUI();
+  showScreen('map-screen');
 }
 
 // ── Story map UI ─────────────────────────────────────────────
@@ -318,23 +434,40 @@ function showBookVictory() {
   document.getElementById('bv-art').textContent = book.art;
   document.getElementById('bv-title').textContent = book.title + ' — Complete!';
   document.getElementById('bv-ending').textContent = book.ending;
+
+  // Save carry state — deck, relics, disciplines, gold carry to next book
+  PROGRESS.carryState = {
+    deck:         [...G.deck],
+    relics:       [...G.relics],
+    discRelicPool:[...(G.discRelicPool||[])],
+    disciplines:  [...G.disciplines],
+    gold:         G.gold,
+  };
+
   if(!PROGRESS.booksCompleted.includes(bookIdx)) {
     PROGRESS.booksCompleted.push(bookIdx);
     PROGRESS.discUnlocks = 5 + PROGRESS.booksCompleted.length;
     const unlockEl = document.getElementById('bv-unlock');
     const nextBook = BOOKS[bookIdx + 1];
-    if(nextBook) { unlockEl.textContent = '✦ Unlocked: '+nextBook.title+' · You may now master '+PROGRESS.discUnlocks+' Disciplines'; unlockEl.style.display = 'block'; }
+    if(nextBook) { unlockEl.textContent = '✦ Unlocked: '+nextBook.title+' · Cards, relics & gold carry over · +1 Discipline slot'; unlockEl.style.display = 'block'; }
     else { unlockEl.textContent = '✦ All five books complete — Kai Lord Supreme!'; unlockEl.style.display = 'block'; }
-    document.getElementById('bv-save-note').textContent = 'Saving progress to cloud…';
-    saveProgress().then(ok => { document.getElementById('bv-save-note').textContent = ok ? '✓ Progress saved to cloud' : '✗ Save failed — copy your Player ID to restore progress'; });
   } else {
     document.getElementById('bv-unlock').style.display = 'none';
-    document.getElementById('bv-save-note').textContent = 'This book was already completed.';
   }
+
+  document.getElementById('bv-save-note').textContent = 'Saving progress to cloud…';
+  saveProgress().then(ok => {
+    document.getElementById('bv-save-note').textContent = ok ? '✓ Progress saved to cloud' : '✗ Save failed — copy your Player ID to restore progress';
+  });
+
   showScreen('book-victory-screen');
 }
 
-function restartCurrentBook() { if(!storyMode) return; openBookIntro(activeBookIdx); }
+function restartCurrentBook() {
+  if(!storyMode) return;
+  // Retry keeps carry state intact — player restarts with same loadout
+  openBookIntro(activeBookIdx);
+}
 function returnToBookSelect() { storyMode = false; renderBookGrid(); showScreen('book-select-screen'); }
 
 function storyPlayerDied() {
