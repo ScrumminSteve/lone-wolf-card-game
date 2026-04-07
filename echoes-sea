@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>ECHOES — The Sea</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #000; overflow: hidden; width: 100vw; height: 100vh; touch-action: none; }
+  canvas { display: block; }
+  #hint {
+    position: fixed;
+    bottom: 32px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(100, 200, 255, 0.32);
+    font-family: 'Georgia', serif;
+    font-size: 13px;
+    letter-spacing: 0.25em;
+    font-style: italic;
+    pointer-events: none;
+    opacity: 1;
+    transition: opacity 3s;
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">touch · move through the deep</div>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const hint = document.getElementById('hint');
+
+// ── SCREEN ──────────────────────────────────────────────────────
+let SW, SH;
+
+// ── WORLD ───────────────────────────────────────────────────────
+// Wide world that wraps horizontally; hard top (surface) and bottom (abyss)
+const WW = 4200;
+const WH = 2800;
+const SURFACE_Y = 0;
+const ABYSS_Y   = WH;
+
+// ── CAMERA ──────────────────────────────────────────────────────
+const cam = { x: WW / 2, y: WH * 0.38 };
+
+function resize() {
+SW = canvas.width  = window.innerWidth;
+SH = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener(‘resize’, resize);
+
+const toScreen = (wx, wy) => ({ x: wx - cam.x + SW/2, y: wy - cam.y + SH/2 });
+const toWorld  = (sx, sy) => ({ x: sx + cam.x - SW/2, y: sy + cam.y - SH/2 });
+const wrapX    = x => ((x % WW) + WW) % WW;
+function dxW(ax, bx) { let d = bx-ax; if(d>WW/2)d-=WW; if(d<-WW/2)d+=WW; return d; }
+function distW(a, b) { return Math.hypot(dxW(a.x,b.x), b.y-a.y); }
+
+// ── STATE ───────────────────────────────────────────────────────
+let t = 0;
+let hasInteracted = false;
+let climaxFlash = 0;
+
+const seeker = {
+x: WW/2, y: WH*0.38,
+vx: 0, vy: 0,
+trail: [],
+glow: 0.55,
+};
+
+const other = {
+x: WW*0.63, y: WH*0.42,
+vx: 0, vy: 0,
+trail: [],
+moveAngle: Math.random()*Math.PI*2,
+responseTimer: 80,
+visibility: 0,   // 0–1
+contacted: false,
+};
+
+const pulseWaves   = [];   // seeker’s visible pulses
+const impactRipples = [];  // where other’s invisible pulse hits seeker
+const particles    = [];
+const bubbles      = [];
+const corals       = buildCorals();
+
+// ── BUILD WORLD ─────────────────────────────────────────────────
+function buildCorals() {
+const arr = [];
+for (let i = 0; i < 70; i++) {
+arr.push({
+x:       Math.random() * WW,
+y:       ABYSS_Y - 10 - Math.random() * 20,
+h:       35 + Math.random() * 130,
+branches: Math.floor(2 + Math.random() * 4),
+phase:   Math.random() * Math.PI * 2,
+hue:     155 + Math.random() * 55,
+});
+}
+return arr;
+}
+
+(function spawnParticles() {
+for (let i = 0; i < 320; i++) {
+particles.push({
+x:     Math.random() * WW,
+y:     Math.random() * WH,
+size:  0.4 + Math.random() * 1.6,
+alpha: 0.03 + Math.random() * 0.12,
+speed: 0.07 + Math.random() * 0.22,
+angle: Math.random() * Math.PI * 2,
+drift: (Math.random()-0.5) * 0.007,
+hue:   175 + Math.random() * 55,
+phase: Math.random() * Math.PI * 2,
+});
+}
+})();
+
+function spawnBubble() {
+bubbles.push({
+x:      Math.random() * WW,
+y:      ABYSS_Y - Math.random() * 300,
+r:      0.8 + Math.random() * 2.5,
+speed:  0.22 + Math.random() * 0.38,
+wobble: Math.random() * Math.PI * 2,
+alpha:  0.05 + Math.random() * 0.09,
+});
+}
+for (let i = 0; i < 50; i++) spawnBubble();
+
+// ── INPUT ────────────────────────────────────────────────────────
+let pointer = null;
+
+function onStart(sx, sy) {
+pointer = { x: sx, y: sy };
+if (!hasInteracted) {
+hasInteracted = true;
+setTimeout(() => { hint.style.opacity = ‘0’; }, 600);
+}
+emitSeekerPulse();
+}
+
+canvas.addEventListener(‘pointerdown’, e => { e.preventDefault(); onStart(e.clientX, e.clientY); });
+canvas.addEventListener(‘pointermove’, e => { if (e.buttons) pointer = { x: e.clientX, y: e.clientY }; });
+canvas.addEventListener(‘pointerup’,   () => { pointer = null; });
+canvas.addEventListener(‘touchstart’,  e => { e.preventDefault(); onStart(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
+canvas.addEventListener(‘touchmove’,   e => { e.preventDefault(); pointer = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }, { passive: false });
+canvas.addEventListener(‘touchend’,    () => { pointer = null; });
+
+// ── PULSES ───────────────────────────────────────────────────────
+function emitSeekerPulse() {
+pulseWaves.push({ x: seeker.x, y: seeker.y, r: 0, alpha: 0.48, climax: false });
+}
+function emitClimaxPulse(wx, wy) {
+pulseWaves.push({ x: wx, y: wy, r: 0, alpha: 0.6, climax: true });
+}
+
+// Other emits pulses that are INVISIBLE — tracked only to detect when they hit seeker
+const otherPulses = [];
+function emitOtherPulse() {
+otherPulses.push({ x: other.x, y: other.y, r: 0, hitSeeker: false });
+}
+
+// ── UPDATE ────────────────────────────────────────────────────────
+function update() {
+t++;
+
+// ─ Seeker
+if (pointer) {
+const wp = toWorld(pointer.x, pointer.y);
+let dx = wp.x - seeker.x, dy = wp.y - seeker.y;
+if (dx > WW/2) dx -= WW; if (dx < -WW/2) dx += WW;
+const d = Math.hypot(dx, dy);
+if (d > 3) { seeker.vx += (dx/d)*0.44; seeker.vy += (dy/d)*0.44; }
+}
+seeker.vx *= 0.87; seeker.vy *= 0.87;
+seeker.x = wrapX(seeker.x + seeker.vx);
+seeker.y = Math.max(SURFACE_Y+18, Math.min(ABYSS_Y-18, seeker.y + seeker.vy));
+seeker.trail.unshift({ x: seeker.x, y: seeker.y });
+if (seeker.trail.length > 48) seeker.trail.pop();
+seeker.glow = 0.52 + Math.sin(t*0.05)*0.12;
+
+// ─ Camera
+cam.x += (seeker.x - cam.x) * 0.075;
+cam.y += (seeker.y - cam.y) * 0.075;
+
+// ─ Proximity
+const d2other   = distW(seeker, other);
+const proximity = Math.max(0, 1 - d2other / 700);  // 0–1 over 700 world units
+const revealPrx = Math.max(0, 1 - d2other / 320);  // starts showing at 320
+
+// ─ Other visibility
+if (other.contacted) {
+other.visibility = Math.min(1, other.visibility + 0.006);
+} else {
+// Very faint shimmer only when very close
+const targetVis = revealPrx * 0.15;
+other.visibility += (targetVis - other.visibility) * 0.04;
+}
+
+// ─ Other movement
+other.moveAngle += (Math.random()-0.5) * 0.05;
+if (proximity > 0.15) {
+const ang = Math.atan2(seeker.y - other.y, dxW(other.x, seeker.x));
+other.moveAngle += (ang - other.moveAngle) * 0.01;
+}
+const spd = 0.55 + proximity * 0.9;
+other.x = wrapX(other.x + Math.cos(other.moveAngle)*spd);
+other.y = Math.max(SURFACE_Y+28, Math.min(ABYSS_Y-90, other.y + Math.sin(other.moveAngle)*spd));
+other.trail.unshift({ x: other.x, y: other.y });
+if (other.trail.length > 36) other.trail.pop();
+
+// ─ Other fires invisible pulses periodically
+other.responseTimer–;
+if (other.responseTimer <= 0) {
+other.responseTimer = 110 + Math.random() * 140;
+emitOtherPulse();
+}
+
+// ─ Seeker pulses expand
+for (let i = pulseWaves.length-1; i >= 0; i–) {
+const p = pulseWaves[i];
+p.r += 3.2 + proximity*3;
+p.alpha *= 0.977;
+if (p.r > Math.max(WW,WH)*0.55 || p.alpha < 0.005) pulseWaves.splice(i,1);
+}
+
+// ─ Other’s invisible pulses expand & detect seeker
+for (let i = otherPulses.length-1; i >= 0; i–) {
+const p = otherPulses[i];
+p.r += 2.6 + proximity*2.5;
+if (!p.hitSeeker) {
+const dx = dxW(p.x, seeker.x);
+const dy = seeker.y - p.y;
+const dToSeeker = Math.hypot(dx, dy);
+if (Math.abs(dToSeeker - p.r) < 7) {
+p.hitSeeker = true;
+impactRipples.push({ x: seeker.x, y: seeker.y, r: 0, alpha: 0.6 });
+}
+}
+if (p.r > Math.max(WW,WH)*0.55) otherPulses.splice(i,1);
+}
+
+// ─ Impact ripples decay
+for (let i = impactRipples.length-1; i >= 0; i–) {
+const r = impactRipples[i];
+r.r += 2.0; r.alpha *= 0.93;
+if (r.alpha < 0.01) impactRipples.splice(i,1);
+}
+
+// ─ Contact
+if (!other.contacted && d2other < 52) {
+other.contacted = true;
+climaxFlash = 1.0;
+for (let i = 0; i < 7; i++) {
+const mx = (seeker.x+other.x)/2, my = (seeker.y+other.y)/2;
+setTimeout(() => emitClimaxPulse(mx, my), i*100);
+}
+}
+if (climaxFlash > 0) climaxFlash *= 0.93;
+
+// ─ Particles
+for (const p of particles) {
+p.angle += p.drift;
+p.x = wrapX(p.x + Math.cos(p.angle)*p.speed);
+p.y += Math.sin(p.angle)*p.speed*0.25;
+if (p.y < SURFACE_Y) p.y = ABYSS_Y;
+if (p.y > ABYSS_Y)   p.y = SURFACE_Y;
+p.alpha += Math.sin(t*0.018+p.phase)*0.0018;
+p.alpha = Math.max(0.02, Math.min(0.18, p.alpha));
+}
+
+// ─ Bubbles
+if (t % 9 === 0) spawnBubble();
+for (let i = bubbles.length-1; i >= 0; i–) {
+const b = bubbles[i];
+b.y -= b.speed;
+b.x = wrapX(b.x + Math.sin(t*0.022+b.wobble)*0.32);
+if (b.y < SURFACE_Y-10) bubbles.splice(i,1);
+}
+}
+
+// ── DRAW ─────────────────────────────────────────────────────────
+function draw() {
+ctx.clearRect(0, 0, SW, SH);
+
+// ─ Background: depth-tinted gradient
+const depthRatio = Math.max(0, Math.min(1, cam.y / WH));
+const topL = 9  - depthRatio * 7;
+const botL = 4  - depthRatio * 3;
+const bg = ctx.createLinearGradient(0, 0, 0, SH);
+bg.addColorStop(0, `hsl(215,62%,${topL}%)`);
+bg.addColorStop(1, `hsl(205,72%,${botL}%)`);
+ctx.fillStyle = bg; ctx.fillRect(0,0,SW,SH);
+
+// ─ Surface light bleed
+const surSY = toScreen(0, SURFACE_Y).y;
+if (surSY > -SH && surSY < SH) {
+const alpha = Math.max(0, (1-depthRatio*2.5)) * 0.08;
+const sg = ctx.createLinearGradient(0, surSY, 0, surSY+SH*0.45);
+sg.addColorStop(0, `rgba(90,185,240,${alpha})`);
+sg.addColorStop(1, ‘rgba(0,0,0,0)’);
+ctx.fillStyle = sg; ctx.fillRect(0, Math.max(0,surSY), SW, SH);
+}
+
+// ─ Abyss dark bleed
+const abySY = toScreen(0, ABYSS_Y).y;
+if (abySY > 0) {
+const ag = ctx.createLinearGradient(0, Math.max(0,abySY-SH*0.35), 0, abySY);
+ag.addColorStop(0,‘rgba(0,0,0,0)’);
+ag.addColorStop(1,‘rgba(0,0,6,0.92)’);
+ctx.fillStyle = ag; ctx.fillRect(0,0,SW,SH);
+}
+
+// ─ Viewport bounds
+const vpx1 = cam.x-SW/2-80, vpx2 = cam.x+SW/2+80;
+const vpy1 = cam.y-SH/2-80, vpy2 = cam.y+SH/2+80;
+
+// ─ Bioluminescent particles
+for (const p of particles) {
+if (p.y < vpy1 || p.y > vpy2) continue;
+for (const ox of [0, WW, -WW]) {
+const wx = p.x+ox;
+if (wx < vpx1 || wx > vpx2) continue;
+const s = toScreen(wx, p.y);
+ctx.save();
+ctx.globalAlpha = p.alpha;
+ctx.fillStyle = `hsl(${p.hue},75%,68%)`;
+ctx.shadowBlur = 5; ctx.shadowColor = `hsl(${p.hue},100%,80%)`;
+ctx.beginPath(); ctx.arc(s.x,s.y,p.size,0,Math.PI*2); ctx.fill();
+ctx.restore();
+}
+}
+
+// ─ Coral
+drawCorals(vpx1, vpx2);
+
+// ─ Bubbles
+for (const b of bubbles) {
+if (b.y < vpy1 || b.y > vpy2) continue;
+for (const ox of [0, WW, -WW]) {
+const wx = b.x+ox;
+if (wx < vpx1 || wx > vpx2) continue;
+const s = toScreen(wx, b.y);
+ctx.save(); ctx.globalAlpha = b.alpha;
+ctx.strokeStyle=‘rgba(155,225,255,0.7)’; ctx.lineWidth=0.5;
+ctx.beginPath(); ctx.arc(s.x,s.y,b.r,0,Math.PI*2); ctx.stroke();
+ctx.restore();
+}
+}
+
+// ─ Connection beam (only when other has some visibility)
+if (other.visibility > 0.04) {
+const sS = toScreen(seeker.x, seeker.y);
+const oS = toScreen(other.x, other.y);
+ctx.save();
+ctx.globalAlpha = other.visibility * 0.32;
+const beam = ctx.createLinearGradient(sS.x,sS.y,oS.x,oS.y);
+beam.addColorStop(0,‘hsl(195,100%,75%)’);
+beam.addColorStop(0.5,‘hsl(185,100%,80%)’);
+beam.addColorStop(1,‘hsl(172,100%,70%)’);
+ctx.strokeStyle = beam;
+ctx.lineWidth = other.visibility * 5;
+ctx.lineCap = ‘round’;
+ctx.shadowBlur = 14; ctx.shadowColor = ‘rgba(100,220,255,0.35)’;
+ctx.beginPath(); ctx.moveTo(sS.x, sS.y);
+const mx = (sS.x+oS.x)/2 + Math.sin(t*0.02)*32;
+const my = (sS.y+oS.y)/2 + Math.cos(t*0.015)*24;
+ctx.quadraticCurveTo(mx,my,oS.x,oS.y); ctx.stroke();
+ctx.restore();
+}
+
+// ─ Seeker visible pulses (and climax pulses)
+for (const p of pulseWaves) {
+for (const ox of [0, WW, -WW]) {
+const s = toScreen(p.x+ox, p.y);
+if (s.x < -p.r-20 || s.x > SW+p.r+20) continue;
+ctx.save(); ctx.globalAlpha = p.alpha;
+const hue = p.climax ? 52 : 196;
+ctx.strokeStyle = `hsl(${hue},100%,78%)`;
+ctx.lineWidth = 1.2;
+ctx.shadowBlur = 10; ctx.shadowColor = `hsl(${hue},100%,82%)`;
+ctx.beginPath(); ctx.arc(s.x,s.y,p.r,0,Math.PI*2); ctx.stroke();
+ctx.restore();
+}
+}
+
+// ─ Impact ripples — where OTHER’s pulse lands on seeker (direction hint)
+for (const rip of impactRipples) {
+const s = toScreen(rip.x, rip.y);
+ctx.save(); ctx.globalAlpha = rip.alpha;
+ctx.strokeStyle = ‘hsl(172,100%,72%)’;
+ctx.lineWidth = 1.1;
+ctx.shadowBlur = 9; ctx.shadowColor = ‘hsl(172,100%,78%)’;
+ctx.beginPath(); ctx.arc(s.x,s.y,rip.r,0,Math.PI*2); ctx.stroke();
+ctx.restore();
+}
+
+// ─ Other trail (only when visible)
+if (other.visibility > 0.02) {
+drawTrailW(other.trail, `hsl(172,100%,68%)`, other.visibility * 0.17);
+}
+
+// ─ Seeker trail
+drawTrailW(seeker.trail, `hsl(195,100%,76%)`, 0.30);
+
+// ─ Other creature (faint shimmer → full reveal)
+if (other.visibility > 0.008) {
+const oS = toScreen(other.x, other.y);
+drawCreature(oS.x, oS.y, other.visibility, 172, 13);
+}
+
+// ─ Seeker creature
+const sS = toScreen(seeker.x, seeker.y);
+drawCreature(sS.x, sS.y, seeker.glow, 195, 15);
+
+// ─ Surface shimmer line
+if (surSY >= -4 && surSY <= SH+4) {
+ctx.save(); ctx.globalAlpha = 0.13;
+const sl = ctx.createLinearGradient(0,surSY-3,0,surSY+3);
+sl.addColorStop(0,‘rgba(140,215,255,0)’);
+sl.addColorStop(0.5,‘rgba(140,215,255,0.7)’);
+sl.addColorStop(1,‘rgba(140,215,255,0)’);
+ctx.fillStyle=sl; ctx.fillRect(0,surSY-3,SW,6);
+ctx.restore();
+}
+
+// ─ Climax flash
+if (climaxFlash > 0.005) {
+ctx.save(); ctx.globalAlpha = climaxFlash*0.42;
+ctx.fillStyle=‘rgba(175,245,255,1)’;
+ctx.fillRect(0,0,SW,SH); ctx.restore();
+}
+
+// ─ Vignette
+const vig = ctx.createRadialGradient(SW/2,SH/2,SH*0.22,SW/2,SH/2,SH*0.84);
+vig.addColorStop(0,‘rgba(0,0,0,0)’); vig.addColorStop(1,‘rgba(0,0,8,0.8)’);
+ctx.fillStyle=vig; ctx.fillRect(0,0,SW,SH);
+
+// ─ Subtle depth indicator
+drawDepthBar();
+}
+
+// ── CREATURE ─────────────────────────────────────────────────────
+function drawCreature(sx, sy, glow, hue, radius) {
+ctx.save();
+const og = ctx.createRadialGradient(sx,sy,0,sx,sy,radius*5);
+og.addColorStop(0,`hsla(${hue},100%,80%,${glow*0.48})`);
+og.addColorStop(0.4,`hsla(${hue},100%,70%,${glow*0.13})`);
+og.addColorStop(1,`hsla(${hue},100%,60%,0)`);
+ctx.fillStyle=og; ctx.beginPath(); ctx.arc(sx,sy,radius*5,0,Math.PI*2); ctx.fill();
+
+ctx.shadowBlur=18; ctx.shadowColor=`hsl(${hue},100%,80%)`;
+const core = ctx.createRadialGradient(sx,sy,0,sx,sy,radius);
+core.addColorStop(0,`hsla(${hue},70%,96%,${glow})`);
+core.addColorStop(0.5,`hsla(${hue},100%,75%,${glow*0.85})`);
+core.addColorStop(1,`hsla(${hue},100%,55%,0)`);
+ctx.fillStyle=core; ctx.beginPath(); ctx.arc(sx,sy,radius,0,Math.PI*2); ctx.fill();
+
+ctx.globalAlpha=glow*0.26; ctx.strokeStyle=`hsl(${hue},100%,82%)`;
+ctx.lineWidth=0.7; ctx.shadowBlur=7;
+for (let i=0;i<7;i++) {
+const ang=(i/7)*Math.PI*2+t*0.017;
+const len=radius*(1.3+Math.sin(t*0.043+i*1.2)*0.45);
+ctx.beginPath(); ctx.moveTo(sx,sy);
+ctx.quadraticCurveTo(
+sx+Math.cos(ang+0.45)*len*0.55, sy+Math.sin(ang+0.45)*len*0.55,
+sx+Math.cos(ang)*len,           sy+Math.sin(ang)*len
+);
+ctx.stroke();
+}
+ctx.restore();
+}
+
+// ── TRAIL ────────────────────────────────────────────────────────
+function drawTrailW(points, color, maxA) {
+if (points.length < 2) return;
+ctx.save(); ctx.lineCap=‘round’; ctx.shadowBlur=5; ctx.shadowColor=color;
+for (let i=1;i<points.length;i++) {
+const a=points[i-1],b=points[i];
+if (Math.abs(a.x-b.x)>WW*0.5) continue;
+const sa=toScreen(a.x,a.y), sb=toScreen(b.x,b.y);
+ctx.globalAlpha=maxA*(1-i/points.length);
+ctx.strokeStyle=color; ctx.lineWidth=(1-i/points.length)*2.8;
+ctx.beginPath(); ctx.moveTo(sa.x,sa.y); ctx.lineTo(sb.x,sb.y); ctx.stroke();
+}
+ctx.restore();
+}
+
+// ── CORAL ────────────────────────────────────────────────────────
+function drawCorals(vpx1, vpx2) {
+for (const c of corals) {
+for (const ox of [0,WW,-WW]) {
+const wx = c.x+ox;
+if (wx<vpx1||wx>vpx2) continue;
+const base = toScreen(wx, c.y);
+if (base.y > SH+60) continue;
+const sway = Math.sin(t*0.011+c.phase)*5;
+ctx.save(); ctx.globalAlpha=0.28;
+ctx.strokeStyle=`hsl(${c.hue},55%,22%)`; ctx.lineWidth=2.5; ctx.lineCap=‘round’;
+ctx.beginPath(); ctx.moveTo(base.x, base.y+4);
+ctx.quadraticCurveTo(base.x+sway*0.5, base.y-c.h*0.5, base.x+sway, base.y-c.h);
+ctx.stroke();
+for (let b=0;b<c.branches;b++) {
+const bh=0.3+(b/c.branches)*0.6;
+const bx=base.x+sway*bh, by=base.y-c.h*bh;
+const blen=c.h*0.22, bdir=b%2===0?1:-1;
+ctx.globalAlpha=0.18; ctx.lineWidth=1.2;
+ctx.beginPath(); ctx.moveTo(bx,by);
+ctx.lineTo(bx+bdir*blen+sway*0.25, by-blen*0.7); ctx.stroke();
+}
+ctx.restore();
+}
+}
+}
+
+// ── DEPTH BAR ────────────────────────────────────────────────────
+function drawDepthBar() {
+const barH = SH*0.38, barY = SH/2-barH/2, bx = SW-16;
+const ratio = Math.max(0,Math.min(1, cam.y/WH));
+ctx.save(); ctx.globalAlpha=0.1;
+ctx.strokeStyle=‘rgba(100,185,220,0.5)’; ctx.lineWidth=1;
+ctx.beginPath(); ctx.moveTo(bx,barY); ctx.lineTo(bx,barY+barH); ctx.stroke();
+ctx.fillStyle=‘rgba(150,220,255,0.85)’;
+ctx.beginPath(); ctx.arc(bx, barY+ratio*barH, 2.5,0,Math.PI*2); ctx.fill();
+ctx.restore();
+}
+
+// ── LOOP ─────────────────────────────────────────────────────────
+function loop() { update(); draw(); requestAnimationFrame(loop); }
+loop();
+</script>
+
+</body>
+</html>
